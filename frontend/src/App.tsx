@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { fetchQuote } from './api'
-import type { Country, QuoteResponse, ShippingMethod } from './types'
+import { fetchQuote, placeOrder } from './api'
+import type { Country, OrderConfirmation, OrderRequest, QuoteResponse, ShippingMethod } from './types'
 
 const cart = [
   { sku: 'TSHIRT-001', name: 'Classic Tee', quantity: 2, unitPriceCents: 1999 },
@@ -23,9 +23,11 @@ const promotionMessages: Record<string, string> = {
 
 const euro = new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR' })
 const formatEuro = (cents: number) => euro.format(cents / 100)
+type PendingOrder = { key: string; body: OrderRequest }
 
 function App() {
   const activeRequest = useRef<AbortController | null>(null)
+  const orderInFlight = useRef(false)
   const [country, setCountry] = useState<Country>('ES')
   const [shippingMethod, setShippingMethod] = useState<ShippingMethod>('standard')
   const [promotionText, setPromotionText] = useState('')
@@ -35,6 +37,13 @@ function App() {
   const [showSpinner, setShowSpinner] = useState(false)
   const [quoteError, setQuoteError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
+  const [email, setEmail] = useState('')
+  const [cardNumber, setCardNumber] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [pendingRetry, setPendingRetry] = useState<PendingOrder | null>(null)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [orderError, setOrderError] = useState<string | null>(null)
+  const [confirmation, setConfirmation] = useState<OrderConfirmation | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -91,15 +100,96 @@ function App() {
     setQuoteError(null)
   }
 
+  function clearOrderFeedback() {
+    setPendingRetry(null)
+    setPaymentError(null)
+    setOrderError(null)
+  }
+
   function applyPromotion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const code = promotionText.trim()
 
     if (code) {
+      if (code !== appliedPromotion) clearOrderFeedback()
       startRefresh()
       setAppliedPromotion(code)
       if (code === appliedPromotion) setRetryCount((count) => count + 1)
     }
+  }
+
+  async function submitAttempt(attempt: PendingOrder) {
+    if (orderInFlight.current) return
+    orderInFlight.current = true
+    setIsSubmitting(true)
+    setPaymentError(null)
+    setOrderError(null)
+
+    try {
+      const result = await placeOrder(attempt.body, attempt.key)
+      setPendingRetry(null)
+
+      if (result.status === 201) {
+        setConfirmation(result.data)
+        setCardNumber('')
+      } else if (result.status === 402) {
+        setPaymentError(result.data.error === 'expired_card'
+          ? 'This card has expired. Try another card.'
+          : 'This card was declined. Try another card.')
+      } else if (result.status === 422) {
+        setPaymentError(result.data.errors?.email
+          ? 'Enter a valid email address.'
+          : result.data.errors?.card_number
+            ? 'Enter a 16-digit card number.'
+            : 'Please check your checkout details and try again.')
+      } else if (result.status === 409) {
+        setOrderError('Your order details changed. Please review them and try again.')
+      }
+    } catch {
+      setPendingRetry(attempt)
+      setOrderError('We couldn’t confirm your order. Retry with the same details.')
+    } finally {
+      orderInFlight.current = false
+      setIsSubmitting(false)
+    }
+  }
+
+  function submitOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!quote || isLoading || quoteError || isSubmitting || orderInFlight.current || pendingRetry) return
+
+    const digits = cardNumber.replace(/\D/g, '')
+    if (digits.length !== 16) {
+      setPaymentError('Enter a 16-digit card number.')
+      return
+    }
+
+    const body: OrderRequest = {
+      items: cart.map(({ sku, quantity }) => ({ sku, quantity })),
+      country,
+      shipping_method: shippingMethod,
+      ...(appliedPromotion ? { promo_code: appliedPromotion } : {}),
+      email: email.trim(),
+      card_number: digits,
+    }
+
+    void submitAttempt({ key: crypto.randomUUID(), body })
+  }
+
+  if (confirmation) {
+    return (
+      <div className="min-h-screen bg-slate-50 px-4 py-12 text-slate-900 sm:py-20">
+        <main className="mx-auto max-w-lg rounded-xl border border-slate-200 bg-white p-6 sm:p-8">
+          <span className="text-xl font-bold tracking-tight text-indigo-700">FERO</span>
+          <h1 className="mt-8 text-2xl font-semibold tracking-tight">Order confirmed</h1>
+          <p className="mt-2 text-sm text-slate-600">Thank you. Your order has been placed.</p>
+          <dl className="mt-8 space-y-4 border-t border-slate-200 pt-6 text-sm">
+            <div><dt className="text-slate-600">Order ID</dt><dd className="mt-1 break-all font-medium">{confirmation.order_id}</dd></div>
+            <div className="flex justify-between gap-4"><dt className="text-slate-600">Confirmed total</dt><dd className="font-semibold">{formatEuro(confirmation.total_cents)}</dd></div>
+          </dl>
+        </main>
+      </div>
+    )
   }
 
   return (
@@ -142,7 +232,8 @@ function App() {
                 <select
                   id="country"
                   value={country}
-                  onChange={(event) => { startRefresh(); setCountry(event.target.value as Country) }}
+                  onChange={(event) => { clearOrderFeedback(); startRefresh(); setCountry(event.target.value as Country) }}
+                  disabled={isSubmitting}
                   className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
                 >
                   {countries.map(({ code, name }) => <option key={code} value={code}>{name}</option>)}
@@ -162,7 +253,8 @@ function App() {
                         name="shipping-method"
                         value={option.method}
                         checked={shippingMethod === option.method}
-                        onChange={() => { startRefresh(); setShippingMethod(option.method) }}
+                        onChange={() => { clearOrderFeedback(); startRefresh(); setShippingMethod(option.method) }}
+                        disabled={isSubmitting}
                         className="size-4 shrink-0 accent-indigo-600"
                       />
                       <span className="flex min-w-0 flex-1 items-center justify-between gap-3 text-sm">
@@ -177,6 +269,54 @@ function App() {
                 </div>
               </fieldset>
             </section>
+
+            <section aria-labelledby="payment-heading" className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+              <h2 id="payment-heading" className="text-lg font-semibold">Payment</h2>
+              <form id="payment-form" onSubmit={submitOrder} className="mt-5 space-y-5">
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium">Email address</label>
+                  <input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(event) => { clearOrderFeedback(); setEmail(event.target.value) }}
+                    disabled={isSubmitting}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="card-number" className="block text-sm font-medium">Card number</label>
+                  <input
+                    id="card-number"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="cc-number"
+                    pattern="[0-9]{16}"
+                    maxLength={16}
+                    required
+                    value={cardNumber}
+                    onChange={(event) => {
+                      const digits = event.target.value.replace(/\D/g, '').slice(0, 16)
+                      if (digits !== cardNumber) { clearOrderFeedback(); setCardNumber(digits) }
+                    }}
+                    disabled={isSubmitting}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                  />
+                  <p className="mt-2 text-xs text-slate-500">Enter 16 digits without spaces.</p>
+                </div>
+                {paymentError && <p role="alert" className="text-sm text-red-700">{paymentError}</p>}
+              </form>
+              <details className="mt-5 border-t border-slate-100 pt-4 text-sm text-slate-600">
+                <summary className="cursor-pointer font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">Test cards</summary>
+                <ul className="mt-3 space-y-1 text-xs">
+                  <li>4111111111111111 — approved</li>
+                  <li>4000000000000002 — declined</li>
+                  <li>4000000000000069 — expired</li>
+                </ul>
+              </details>
+            </section>
           </div>
 
           <aside className="space-y-6 lg:sticky lg:top-6">
@@ -190,6 +330,7 @@ function App() {
                     type="text"
                     value={promotionText}
                     onChange={(event) => setPromotionText(event.target.value)}
+                    disabled={isSubmitting}
                     aria-invalid={promotionError && promotionText.trim() === appliedPromotion ? true : undefined}
                     aria-describedby={promotionError && promotionText.trim() === appliedPromotion ? 'promotion-feedback' : undefined}
                     autoComplete="off"
@@ -197,7 +338,7 @@ function App() {
                   />
                   <button
                     type="submit"
-                    disabled={!promotionText.trim()}
+                    disabled={!promotionText.trim() || isSubmitting}
                     className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Apply
@@ -211,7 +352,8 @@ function App() {
                   </p>
                   <button
                     type="button"
-                    onClick={() => { startRefresh(); setAppliedPromotion(null); setPromotionText('') }}
+                    onClick={() => { clearOrderFeedback(); startRefresh(); setAppliedPromotion(null); setPromotionText('') }}
+                    disabled={isSubmitting}
                     className="shrink-0 font-medium text-indigo-700 underline underline-offset-2 hover:text-indigo-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
                   >
                     Remove
@@ -244,6 +386,22 @@ function App() {
                 </div>
               )}
 
+              {orderError && (
+                <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                  <p>{orderError}</p>
+                  {pendingRetry && (
+                    <button
+                      type="button"
+                      onClick={() => { void submitAttempt(pendingRetry) }}
+                      disabled={isSubmitting}
+                      className="mt-2 font-medium underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50"
+                    >
+                      Retry order
+                    </button>
+                  )}
+                </div>
+              )}
+
               {quote ? (
                 <dl className="mt-5 space-y-3 text-sm">
                   <div className="flex justify-between gap-4"><dt className="text-slate-600">Subtotal</dt><dd>{formatEuro(quote.subtotal_cents)}</dd></div>
@@ -253,6 +411,14 @@ function App() {
                   <div className="flex justify-between gap-4 border-t border-slate-200 pt-4 text-base font-semibold"><dt>Total</dt><dd>{formatEuro(quote.total_cents)}</dd></div>
                 </dl>
               ) : <p className="mt-5 text-sm text-slate-500">Your total will appear here when the quote loads.</p>}
+              <button
+                type="submit"
+                form="payment-form"
+                disabled={!quote || isLoading || !!quoteError || isSubmitting || !!pendingRetry}
+                className="mt-6 w-full rounded-lg bg-indigo-700 px-4 py-3 text-sm font-medium text-white hover:bg-indigo-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSubmitting ? 'Placing order…' : 'Place order'}
+              </button>
             </section>
           </aside>
         </div>

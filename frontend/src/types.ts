@@ -27,3 +27,21 @@ export type QuoteResponse = {
     rejection_reason: 'not_found' | 'already_redeemed' | 'min_spend_not_met' | null
   }
 }
+
+export type OrderRequest = QuoteRequest & {
+  email: string
+  card_number: string
+}
+
+export type OrderConfirmation = {
+  order_id: string
+  status: 'confirmed'
+  total_cents: number
+}
+
+export type OrderResult =
+  | { status: 201; data: OrderConfirmation }
+  | {
+      status: 402 | 409 | 422
+      data: { error?: string; errors?: Record<string, string[]> }
+    }
