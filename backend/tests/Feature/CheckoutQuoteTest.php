@@ -86,7 +86,9 @@ class CheckoutQuoteTest extends TestCase
             'shipping_method' => 'standard',
         ]);
 
-        $response->assertUnprocessable()->assertJsonValidationErrors('country')
-            ->assertJsonPath('reason', 'country_not_supported');
+        $response
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('country')
+            ->assertJsonPath('errors.country.0', 'country_not_supported');
     }
 }
