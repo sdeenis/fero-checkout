@@ -3,7 +3,10 @@ import type { OrderRequest, OrderResult, QuoteRequest, QuoteResponse } from './t
 export async function fetchQuote(request: QuoteRequest, signal: AbortSignal): Promise<QuoteResponse> {
   const response = await fetch('/api/checkout/quote', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify(request),
     signal,
   })
@@ -17,6 +20,7 @@ export async function placeOrder(request: OrderRequest, key: string): Promise<Or
   const response = await fetch('/api/checkout/order', {
     method: 'POST',
     headers: {
+      'Accept': 'application/json',
       'Content-Type': 'application/json',
       'Idempotency-Key': key,
     },

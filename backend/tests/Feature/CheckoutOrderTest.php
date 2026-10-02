@@ -192,6 +192,23 @@ class CheckoutOrderTest extends TestCase
             ->assertJsonValidationErrors('idempotency_key');
     }
 
+    public function test_it_recalculates_manipulated_client_side_pricing(): void
+    {
+        $payload = $this->payload();
+        $payload['total_cents'] = 1;
+        $payload['subtotal_cents'] = 1;
+        $payload['discount_cents'] = 1998;
+        $payload['items'][0]['unit_price_cents'] = 1;
+
+        $this->postJson(
+            '/api/checkout/order',
+            $payload,
+            ['Idempotency-Key' => (string) Str::uuid()],
+        )
+            ->assertCreated()
+            ->assertJsonPath('total_cents', 2798);
+    }
+
     private function payload(
         string $cardNumber = '4111111111111111'
     ): array {

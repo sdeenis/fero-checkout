@@ -108,9 +108,11 @@ function App() {
 
   function applyPromotion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const code = promotionText.trim()
+    const code = promotionText.trim().toUpperCase()
 
     if (code) {
+      setPromotionText(code)
+
       if (code !== appliedPromotion) clearOrderFeedback()
       startRefresh()
       setAppliedPromotion(code)
@@ -331,8 +333,8 @@ function App() {
                     value={promotionText}
                     onChange={(event) => setPromotionText(event.target.value)}
                     disabled={isSubmitting}
-                    aria-invalid={promotionError && promotionText.trim() === appliedPromotion ? true : undefined}
-                    aria-describedby={promotionError && promotionText.trim() === appliedPromotion ? 'promotion-feedback' : undefined}
+                    aria-invalid={promotionError && promotionText.trim().toUpperCase() === appliedPromotion ? true : undefined}
+                    aria-describedby={promotionError && promotionText.trim().toUpperCase() === appliedPromotion ? 'promotion-feedback' : undefined}
                     autoComplete="off"
                     className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
                   />

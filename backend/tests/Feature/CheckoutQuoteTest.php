@@ -48,6 +48,21 @@ class CheckoutQuoteTest extends TestCase
             ->assertJsonPath('promo.rejection_reason', null);
     }
 
+    public function test_it_applies_a_lowercase_promotion_code(): void
+    {
+        $response = $this->postJson('/api/checkout/quote', [
+            'items' => [['sku' => 'TSHIRT-001', 'quantity' => 2]],
+            'country' => 'PT',
+            'shipping_method' => 'standard',
+            'promo_code' => 'welcome10',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('discount_cents', 400)
+            ->assertJsonPath('promo.code', 'WELCOME10')
+            ->assertJsonPath('promo.applied', true);
+    }
+
     public function test_es_free_standard_shipping_uses_the_subtotal_after_discount(): void
     {
         $response = $this->postJson('/api/checkout/quote', [

@@ -14,7 +14,8 @@ class CheckoutCalculator
             $subtotalCents += $configuration['products'][$item['sku']]['unit_price_cents'] * $item['quantity'];
         }
 
-        $promoCode = $checkout['promo_code'] ?? null;
+        $promoCode = trim($checkout['promo_code'] ?? '');
+        $promoCode = $promoCode === '' ? null : strtoupper($promoCode);
         $promo = $promoCode === null ? null : ($configuration['promos'][$promoCode] ?? null);
         $promoRejectionReason = null;
         $discountCents = 0;
