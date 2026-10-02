@@ -2,6 +2,7 @@
 
 return [
     'currency' => 'EUR',
+    'order_store_path' => storage_path('app/private/checkout-orders.json'),
 
     'products' => [
         'TSHIRT-001' => [

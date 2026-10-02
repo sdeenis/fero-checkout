@@ -13,11 +13,8 @@ class CheckoutOrderTest extends TestCase
     {
         parent::setUp();
 
-        $this->storePath = storage_path(
-            'app/private/checkout-orders.json'
-        );
-
-        @unlink($this->storePath);
+        $this->storePath = sys_get_temp_dir().DIRECTORY_SEPARATOR.'checkout-orders-'.Str::uuid().'.json';
+        config()->set('checkout.order_store_path', $this->storePath);
     }
 
     protected function tearDown(): void

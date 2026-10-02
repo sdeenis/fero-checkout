@@ -13,7 +13,7 @@ class CheckoutOrderService
 
     public function place(array $checkout, string $idempotencyKey): array
     {
-        $path = storage_path('app/private/checkout-orders.json');
+        $path = config('checkout.order_store_path');
         $directory = dirname($path);
 
         if (! is_dir($directory) && ! mkdir($directory, 0775, true) && ! is_dir($directory)) {
